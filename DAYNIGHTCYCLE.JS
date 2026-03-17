@@ -23,30 +23,26 @@ function updateCycle() {
 }
 updateCycle();
 
-const adminConsole = document.getElementById('admin-console');
+// --- ИСПРАВЛЕННАЯ АДМИН-ПАНЕЛЬ ---
+const adminInput = document.getElementById('admin-console');
 
 window.addEventListener('keydown', (e) => {
-    // Открываем консоль только на сочетание (например, Alt + Shift + P) 
-    // чтобы игроки не нашли её случайно
-    if (e.altKey && e.shiftKey && e.code === 'KeyP') { 
-        e.preventDefault();
-        adminConsole.style.display = 'block';
-        adminConsole.value = '/'; 
-        setTimeout(() => adminConsole.focus(), 10);
-        document.exitPointerLock();
-         if (cmd === '/day') {
-            dayTime = Math.PI / 2; // Ставим солнце в зенит
+    // Отправка команды на Enter
+    if (e.code === 'Enter' && adminInput.style.display === 'block') {
+        const cmd = adminInput.value.trim().toLowerCase();
+
+        if (cmd === '/day') {
+            dayTime = Math.PI / 2; // Полдень
         } 
         else if (cmd === '/night') {
-            dayTime = Math.PI * 1.5; // Ставим солнце под землю
+            dayTime = Math.PI * 1.5; // Полночь
         }
 
+        // Закрываем панель
         adminInput.value = '';
         adminInput.style.display = 'none';
-        window.gameRenderer.domElement.requestPointerLock(); // Возвращаемся в игру
+        window.gameRenderer.domElement.requestPointerLock();
     }
-
-});;
-        
+});
        
     
