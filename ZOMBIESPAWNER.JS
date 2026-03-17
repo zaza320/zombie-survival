@@ -7,6 +7,7 @@ const zombies = [];
 const materials = {
     skin: new THREE.MeshStandardMaterial({ color: 0x2e4d23 }),
     shirt: new THREE.MeshStandardMaterial({ color: 0x1a3312 }),
+    pants: new THREE.MeshStandardMaterial({ color: 0x050533 }) // Синие штаны
 };
 
 function spawnZombie() {
@@ -41,7 +42,7 @@ function spawnZombie() {
     // 4. НОГИ
     const legGeo = new THREE.BoxGeometry(0.2, 0.6, 0.2);
     
-    const leftLeg = new THREE.Mesh(legGeo, materials.skin);
+    const leftLeg = new THREE.Mesh(legGeo, materials.pants);
     leftLeg.position.set(-0.15, 0.3, 0);
     group.add(leftLeg);
 
@@ -74,8 +75,8 @@ function updateZombies() {
         // --- ЛОГИКА ДВИЖЕНИЯ ---
         if (dist > 1.2) {
             const dir = new THREE.Vector3().subVectors(player.position, z.mesh.position).normalize();
-            z.mesh.position.x += dir.x * 0.04; // Чуть медленнее игрока
-            z.mesh.position.z += dir.z * 0.04;
+            z.mesh.position.x += dir.x * 0.15; // скорость игрока
+            z.mesh.position.z += dir.z * 0.15;
             z.mesh.lookAt(player.position.x, 0, player.position.z);
 
             // --- АНИМАЦИЯ ХОДЬБЫ ---
