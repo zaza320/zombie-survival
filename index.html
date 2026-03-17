@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Procedural World</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        #system-log {
+            position: absolute; top: 10px; left: 10px; 
+            color: #00ff00; background: rgba(0,0,0,0.8);
+            padding: 20px; border: 1px solid #00ff00;
+            font-size: 12px; z-index: 100;
+        }
+    </style>
+</head>
+<body>
+
+    <input type="text" id="admin-console" placeholder="Введите /day или /night..." 
+    style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+           width: 300px; background: rgba(0,0,0,0.8); color: #00ff00; 
+           border: 2px solid #00ff00; padding: 10px; display: none; z-index: 2000;
+           font-family: monospace; outline: none;">
+
+     <div id="touch-controls" style="position: fixed; bottom: 20px; left: 0; width: 100%; height: 200px; display: none; z-index: 2000; user-select: none;">
+    <div id="joystick-move" style="position: absolute; left: 30px; bottom: 30px; width: 100px; height: 100px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-size: 10px;">MOVE</div>
+    <div id="btn-jump" style="position: absolute; right: 30px; bottom: 30px; width: 80px; height: 80px; background: rgba(255,255,255,0.1); border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; text-align: center; line-height: 80px; color: white; font-weight: bold;">JUMP</div>
+</div>
+
+<div id="system-log">
+    > CHUNK_SYSTEM: ONLINE<br>
+    > GENERATION_SEED: <span id="seed-val">0</span><br>
+    > CLOUD_LAYER: ENABLED
+</div>
+
+<script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+        }
+    }
+</script>
+
+<script type="module">
+    import * as THREE from 'three';
+
+    // --- НАСТРОЙКИ ---
+    const CHUNK_SIZE = 50;
+    const RENDER_DIST = 3;
+    // Генерируем случайное число для SEED при каждом запуске
+    const SEED = Math.floor(Math.random() * 999999);
+    document.getElementById('seed-val').innerText = SEED;
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87CEEB);
+    scene.fog = new THREE.Fog(0x87CEEB, 20, 150);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+    scene.add(ambientLight);
+
+    const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+    sun.position.set(50, 100, 50);
+    scene.add(sun);
+
+    const materials = {
+        ground: new THREE.MeshStandardMaterial({ color: 0x4a7c44 }),
+        trunk: new THREE.MeshStandardMaterial({ color: 0x5d4037 }),
+        leaves: new THREE.MeshStandardMaterial({ color: 0x2e7d32 }),
+        cloud: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.7 })
+    };
+
+    window.collidableObjects = [];
+    const activeChunks = new Map();
+
+    // Стабильный рандом на основе координат и сида
+    function seededRandom(x, z, offset = 0) {
+        const val = Math.sin((x + offset) * 12.9898 + (z - offset) * 78.233 + SEED) * 43758.5453;
+        return val - Math.floor(val);
+    }
+
+    // Создание облака
+    function spawnCloud(x, z, rand) {
+        const group = new THREE.Group();
+        const parts = 3 + Math.floor(rand * 4);
+        for(let i = 0; i < parts; i++) {
+            const size = 3 + seededRandom(x + i, z) * 4;
+            const cloudPart = new THREE.Mesh(new THREE.SphereGeometry(size, 7, 7), materials.cloud);
+            cloudPart.position.set(
+                (seededRandom(x, z + i) - 0.5) * 12,
+                (seededRandom(i, x) - 0.5) * 4,
+                (seededRandom(z, i) - 0.5) * 12
+            );
+            group.add(cloudPart);
+        }
+        group.position.set(x, 35 + rand * 15, z);
+        return group;
+    }
+
+    // Создание дерева
+    function spawnTree(x, z, rand) {
+        const group = new THREE.Group();
+        const height = 3 + rand * 4;
+        const trunk = new THREE.Mesh(new THREE.BoxGeometry(0.7, height, 0.7), materials.trunk);
+        trunk.position.set(x, height / 2, z);
+        group.add(trunk);
+        window.collidableObjects.push(trunk);
+
+        for (let i = 0; i < 3; i++) {
+            const s = 2 + (i * 0.4);
+            const leaves = new THREE.Mesh(new THREE.SphereGeometry(s, 8, 8), materials.leaves);
+            leaves.position.set(x, height + (i * 1.0), z);
+            group.add(leaves);
+        }
+        return group;
+    }
+
+    function createChunk(cx, cz) {
+        const chunkGroup = new THREE.Group();
+        
+        // Земля
+        const plane = new THREE.Mesh(new THREE.PlaneGeometry(CHUNK_SIZE, CHUNK_SIZE), materials.ground);
+        plane.rotation.x = -Math.PI / 2;
+        plane.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+        chunkGroup.add(plane);
+
+        // Деревья (3 штуки на чанк)
+        for (let i = 0; i < 3; i++) {
+            const rx = seededRandom(cx + i, cz, 10) * CHUNK_SIZE - CHUNK_SIZE/2;
+            const rz = seededRandom(cx, cz + i, 20) * CHUNK_SIZE - CHUNK_SIZE/2;
+            const absX = cx * CHUNK_SIZE + rx;
+            const absZ = cz * CHUNK_SIZE + rz;
+            if (Math.abs(absX) < 6 && Math.abs(absZ) < 6) continue;
+            chunkGroup.add(spawnTree(absX, absZ, seededRandom(absX, absZ)));
+        }
+
+        // Облака (1 на чанк)
+        const clX = cx * CHUNK_SIZE + (seededRandom(cx, cz, 50) - 0.5) * CHUNK_SIZE;
+        const clZ = cz * CHUNK_SIZE + (seededRandom(cz, cx, 60) - 0.5) * CHUNK_SIZE;
+        chunkGroup.add(spawnCloud(clX, clZ, seededRandom(clX, clZ)));
+
+        scene.add(chunkGroup);
+        return chunkGroup;
+    }
+
+    function updateChunks(playerPos) {
+        const pCX = Math.round(playerPos.x / CHUNK_SIZE);
+        const pCZ = Math.round(playerPos.z / CHUNK_SIZE);
+
+        for (let [key, chunk] of activeChunks) {
+            const [cx, cz] = key.split(',').map(Number);
+            if (Math.abs(cx - pCX) > RENDER_DIST || Math.abs(cz - pCZ) > RENDER_DIST) {
+                scene.remove(chunk);
+                chunk.traverse(obj => {
+                    const idx = window.collidableObjects.indexOf(obj);
+                    if (idx > -1) window.collidableObjects.splice(idx, 1);
+                });
+                activeChunks.delete(key);
+            }
+        }
+
+        for (let x = -RENDER_DIST; x <= RENDER_DIST; x++) {
+            for (let z = -RENDER_DIST; z <= RENDER_DIST; z++) {
+                const cx = pCX + x;
+                const cz = pCZ + z;
+                const key = `${cx},${cz}`;
+                if (!activeChunks.has(key)) {
+                    activeChunks.set(key, createChunk(cx, cz));
+                }
+            }
+        }
+    }
+
+    window.gameScene = scene;
+    window.gameRenderer = renderer;
+    window.updateChunks = updateChunks;
+
+    function animate() {
+        requestAnimationFrame(animate);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    
+
+</script>
+<script type="module" src="PLAYER.JS"></script>
+<script type="module" src="DAYNIGHTCYCLE.JS"></script>
+<script type="module" src="ZOMBIESPAWNER.JS"></script>
+</script>
+</body>
+</html>
