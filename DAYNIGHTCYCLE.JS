@@ -5,7 +5,7 @@ const scene = window.gameScene;
 const ambient = scene.children.find(c => c.isAmbientLight);
 const sun = scene.children.find(c => c.isDirectionalLight);
 
-let dayTime = 0; 
+let dayTime = Math.PI / 2; // Это значение соответствует полдню (солнце в зените)
 // Уменьшили скорость в 4 раза (было 0.002), теперь день и ночь длятся дольше
 const cycleSpeed = 0.0005; 
 

@@ -3,29 +3,38 @@ import * as THREE from 'three';
 const scene = window.gameScene;
 const renderer = window.gameRenderer;
 
-// --- СОЗДАНИЕ HP БАРА ---
+// --- 1. ИСПРАВЛЕНИЕ ГЕОМЕТРИИ ЭКРАНА (RESIZE) ---
+function resize() {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+    renderer.setSize(width, height);
+}
+window.addEventListener('resize', resize);
+
+// --- 2. ИНТЕРФЕЙС (HP БАР) ---
 const ui = document.createElement('div');
-ui.style.cssText = 'position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:200px; height:20px; border:2px solid #fff; background:#333; z-index:1000;';
+ui.style.cssText = 'position:fixed; bottom:20px; left:50%; transform:translateX(-50%); width:200px; height:20px; border:2px solid #fff; background:#333; z-index:1000; border-radius:10px; overflow:hidden;';
 const hpFill = document.createElement('div');
-hpFill.style.cssText = 'width:100%; height:100%; background:#ff0000; transition:0.2s;';
+hpFill.style.cssText = 'width:100%; height:100%; background:linear-gradient(90deg, #ff0000, #ff5555); transition:0.3s;';
 ui.appendChild(hpFill);
 document.body.appendChild(ui);
 
 let playerHP = 10;
-// Нужно для ZOMBIESPAWNER
 window.takeDamage = (amt) => {
     playerHP -= amt;
     hpFill.style.width = Math.max(0, (playerHP / 10) * 100) + '%';
     if (playerHP <= 0) {
-        alert("ТЕБЯ СЪЕЛИ!");
+        alert("Зомби оказались вкуснее тебя! ТЕБЯ СЪЕЛИ.");
         location.reload();
     }
 };
 
+// --- 3. СОЗДАНИЕ ИГРОКА ---
 const playerGroup = new THREE.Group();
-window.playerObject = playerGroup; // Экспорт для зомби
+window.playerObject = playerGroup;
 
-// Визуал ног
 const legGeo = new THREE.BoxGeometry(0.25, 0.8, 0.25);
 const lLeg = new THREE.Mesh(legGeo, new THREE.MeshStandardMaterial({ color: 0x111111 }));
 lLeg.position.set(-0.2, 0.4, 0);
@@ -41,13 +50,21 @@ const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerH
 let yaw = 0, pitch = 0;
 const keys = {};
 
+// --- 4. УПРАВЛЕНИЕ (ПК И МОБИЛЬНЫЕ) ---
 window.addEventListener('keydown', (e) => keys[e.code] = true);
 window.addEventListener('keyup', (e) => keys[e.code] = false);
 
+// Блокировка мыши для ПК
 renderer.domElement.addEventListener('mousedown', () => {
-    document.body.requestPointerLock();
+    if (!('ontouchstart' in window)) document.body.requestPointerLock();
 });
 
+// Переменные для тача
+let lastTouchX = null;
+let lastTouchY = null;
+const touchData = { forward: false, backward: false, left: false, right: false };
+
+// Движение мыши (ПК) + Свайпы (Телефон)
 window.addEventListener('mousemove', (e) => {
     if (document.pointerLockElement === document.body) {
         yaw -= e.movementX * 0.003;
@@ -56,15 +73,42 @@ window.addEventListener('mousemove', (e) => {
     }
 });
 
-let velocityY = 0;
-const gravity = -0.012;
-const speed = 0.15;
-const playerRadius = 0.5;
+window.addEventListener('touchstart', (e) => {
+    const t = e.touches[0];
+    lastTouchX = t.clientX;
+    lastTouchY = t.clientY;
+    
+    // Секретка: 3 пальца открывают консоль
+    if (e.touches.length === 3) {
+        const console = document.getElementById('admin-console');
+        console.style.display = 'block';
+        console.focus();
+    }
+}, { passive: false });
+
+window.addEventListener('touchmove', (e) => {
+    const t = e.touches[0];
+    if (lastTouchX !== null && e.target.tagName !== 'BUTTON') {
+        const dx = t.clientX - lastTouchX;
+        const dy = t.clientY - lastTouchY;
+        yaw -= dx * 0.007;
+        pitch -= dy * 0.005;
+        pitch = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, pitch));
+    }
+    lastTouchX = t.clientX;
+    lastTouchY = t.clientY;
+}, { passive: false });
+
+// --- 5. КОЛЛИЗИИ (ЧТОБЫ НЕ ХОДИТЬ СКВОЗЬ СТЕНЫ) ---
 const raycaster = new THREE.Raycaster();
+const playerRadius = 0.6;
 
 function checkCollision(nextPos) {
     if (!window.collidableObjects) return false;
-    const directions = [new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0), new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1)];
+    const directions = [
+        new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+        new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)
+    ];
     for (let dir of directions) {
         raycaster.set(nextPos, dir);
         const intersects = raycaster.intersectObjects(window.collidableObjects);
@@ -73,61 +117,72 @@ function checkCollision(nextPos) {
     return false;
 }
 
-// --- МОБИЛЬНОЕ УПРАВЛЕНИЕ ---
-const touchControls = document.getElementById('touch-controls');
-const touchData = { forward: false };
-
-// Проверка: есть ли тачскрин (телефон/планшет)
+// --- 6. ОБНОВЛЕНИЕ МОБИЛЬНЫХ КНОПОК ---
+const controlsDiv = document.getElementById('touch-controls');
 if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-    touchControls.style.display = 'block';
+    controlsDiv.style.display = 'grid'; // Используем сетку для кнопок
+    controlsDiv.style.gridTemplateColumns = 'repeat(3, 1fr)';
+    controlsDiv.style.gap = '10px';
+    controlsDiv.style.bottom = '30px';
+    controlsDiv.style.left = '20px';
+    controlsDiv.style.width = '180px';
+    
+    // Перерисовываем кнопки в HTML для полного управления
+    controlsDiv.innerHTML = `
+        <div style="grid-column: 2"><button id="m-up" style="width:50px; height:50px; opacity:0.6;">W</button></div>
+        <div style="grid-column: 1"><button id="m-left" style="width:50px; height:50px; opacity:0.6;">A</button></div>
+        <div style="grid-column: 2"><button id="m-down" style="width:50px; height:50px; opacity:0.6;">S</button></div>
+        <div style="grid-column: 3"><button id="m-right" style="width:50px; height:50px; opacity:0.6;">D</button></div>
+        <div style="grid-column: 3; position:fixed; right:30px; bottom:100px;">
+            <button id="m-jump" style="width:70px; height:70px; border-radius:50%; opacity:0.8; background:gold;">JUMP</button>
+        </div>
+    `;
+
+    const setupBtn = (id, key) => {
+        const btn = document.getElementById(id);
+        btn.ontouchstart = (e) => { e.preventDefault(); touchData[key] = true; };
+        btn.ontouchend = () => touchData[key] = false;
+    };
+    setupBtn('m-up', 'forward');
+    setupBtn('m-down', 'backward');
+    setupBtn('m-left', 'left');
+    setupBtn('m-right', 'right');
+    
+    document.getElementById('m-jump').ontouchstart = (e) => { e.preventDefault(); keys['Space'] = true; };
+    document.getElementById('m-jump').ontouchend = () => keys['Space'] = false;
+
+    resize(); // Фикс экрана сразу
 }
 
-// Обработка ходьбы (зажимаем левую зону — идем вперед)
-const joyMove = document.getElementById('joystick-move');
-joyMove.addEventListener('touchstart', (e) => { e.preventDefault(); touchData.forward = true; });
-joyMove.addEventListener('touchend', () => { touchData.forward = false; });
-
-// Обработка прыжка
-const btnJump = document.getElementById('btn-jump');
-btnJump.addEventListener('touchstart', (e) => { 
-    e.preventDefault(); 
-    keys['Space'] = true; 
-});
-btnJump.addEventListener('touchend', () => { 
-    keys['Space'] = false; 
-});
-
-// Секретная консоль на телефоне (три пальца сразу)
-window.addEventListener('touchstart', (e) => {
-    if (e.touches.length === 3) {
-        const adminConsole = document.getElementById('admin-console');
-        adminConsole.style.display = 'block';
-        adminConsole.value = '/';
-        setTimeout(() => adminConsole.focus(), 10);
-    }
-});
+// --- 7. ЦИКЛ ИГРЫ ---
+let velocityY = 0;
+const gravity = -0.012;
+const speed = 0.15;
 
 function updatePlayer() {
     const moveDir = new THREE.Vector3(0, 0, 0);
     
-    // Проверка клавиатуры ИЛИ тачскрина
     if (keys['KeyW'] || touchData.forward) moveDir.z -= 1; 
-    if (keys['KeyS']) moveDir.z += 1;
-    if (keys['KeyA']) moveDir.x -= 1;
-    if (keys['KeyD']) moveDir.x += 1;
+    if (keys['KeyS'] || touchData.backward) moveDir.z += 1;
+    if (keys['KeyA'] || touchData.left) moveDir.x -= 1;
+    if (keys['KeyD'] || touchData.right) moveDir.x += 1;
 
     if (moveDir.length() > 0) {
         moveDir.normalize().applyAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
         const nextPos = playerGroup.position.clone().addScaledVector(moveDir, speed);
+        
+        // Проверка коллизий перед шагом
         if (!checkCollision(nextPos)) {
             playerGroup.position.x = nextPos.x;
             playerGroup.position.z = nextPos.z;
         }
+
         const time = Date.now() * 0.01;
         lLeg.rotation.x = Math.sin(time) * 0.5;
         rLeg.rotation.x = -Math.sin(time) * 0.5;
     }
 
+    // Гравитация и прыжок
     velocityY += gravity;
     playerGroup.position.y += velocityY;
     if (playerGroup.position.y <= 0) {
@@ -144,33 +199,23 @@ function updatePlayer() {
     renderer.render(scene, camera);
 }
 
-const adminConsole = document.getElementById('admin-console');
-
-window.addEventListener('keydown', (e) => {
-    // Открываем на T
-    if (e.code === 'KeyT' && adminConsole.style.display === 'none') {
-        e.preventDefault(); // КРИТИЧНО: чтобы буква "т" не печаталась в консоль
-        
-        adminConsole.style.display = 'block';
-        adminConsole.value = '/'; // Сразу ставим слэш
-        
-        // Небольшая задержка перед фокусом, чтобы браузер успел обработать отмену нажатия
-        setTimeout(() => adminConsole.focus(), 10); 
-        
-        document.exitPointerLock(); 
-    }
-    
-    // Закрываем на Escape
-    if (e.code === 'Escape') {
-        adminConsole.style.display = 'none';
-        adminConsole.value = '';
-        // Возвращаем управление камерой
-        renderer.domElement.requestPointerLock();
-    }
-});
-
 function loop() {
     requestAnimationFrame(loop);
     updatePlayer();
 }
 loop();
+
+// Админка
+const adminConsole = document.getElementById('admin-console');
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyT' && adminConsole.style.display === 'none') {
+        e.preventDefault();
+        adminConsole.style.display = 'block';
+        setTimeout(() => adminConsole.focus(), 10);
+        document.exitPointerLock();
+    }
+    if (e.code === 'Escape') {
+        adminConsole.style.display = 'none';
+        renderer.domElement.requestPointerLock();
+    }
+});
